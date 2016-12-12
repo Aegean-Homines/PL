@@ -1,4 +1,5 @@
 #include "pl.h"
+#include <bitset>
 
 CNF const operator|( Literal const& op1, Literal const& op2 ) { return CNF(op1)|CNF(op2); }
 CNF const operator|( Literal const& op1, CNF     const& op2 ) { return CNF(op1)|op2; }
@@ -11,9 +12,10 @@ CNF const operator>( Literal const& op1, CNF     const& op2 ) { return CNF(op1)>
 KnowledgeBase::KnowledgeBase() : clauses() {}
 ////////////////////////////////////////////////////////////////////////////
 KnowledgeBase& KnowledgeBase::operator+=( CNF const& cnf ) {
-    for ( ClauseSet::const_iterator it = cnf.begin(); it != cnf.end(); ++it ) {
+	clauses.insert(cnf.begin(), cnf.end());
+   /* for ( ClauseSet::const_iterator it = cnf.begin(); it != cnf.end(); ++it ) {
         clauses.insert( *it );
-    }
+    }*/
     return *this;
 }
 KnowledgeBase & KnowledgeBase::operator+=(Literal const & literal)
@@ -23,9 +25,15 @@ KnowledgeBase & KnowledgeBase::operator+=(Literal const & literal)
 }
 KnowledgeBase & KnowledgeBase::operator+=(KnowledgeBase const & kb)
 {
-	for (ClauseSet::const_iterator it = kb.begin(); it != kb.end(); ++it) {
+	clauses.insert(kb.begin(), kb.end());
+	/*for (ClauseSet::const_iterator it = kb.begin(); it != kb.end(); ++it) {
 		clauses.insert(*it);
-	}
+	}*/
+	return *this;
+}
+KnowledgeBase & KnowledgeBase::operator+=(Clause const & clause)
+{
+	clauses.insert(clause);
 	return *this;
 }
 ////////////////////////////////////////////////////////////////////////
@@ -35,37 +43,66 @@ unsigned                           KnowledgeBase::size()  const { return clauses
 ////////////////////////////////////////////////////////////////////////////
 bool KnowledgeBase::ProveByRefutation( CNF const& alpha ) const {
 
+	CNF negatedAlpha = ~alpha;
+	if (negatedAlpha.size() == 0) { // Every value is complimentary of each other, i.e. negate is always false
+		return true;
+	}
 	KnowledgeBase intermediateKnowledgeBase(*this);
-	intermediateKnowledgeBase += ~alpha;
-	return ResolveKB(intermediateKnowledgeBase);
+	// Remove original couples that result in true
+	// They won't effect the process, they're just extra data from the viewpoint of resolution
+	//intermediateKnowledgeBase.PurgeAbsoluteTruths();
+	intermediateKnowledgeBase += negatedAlpha;
+	KnowledgeBase processedKB;
+	return ResolveKB(processedKB, intermediateKnowledgeBase);
 }
-bool KnowledgeBase::ResolveKB(KnowledgeBase & KB) const
+bool KnowledgeBase::ResolveKB(KnowledgeBase & processedKB, KnowledgeBase & newKB) const
 {
 	// KB to be added to the original one
 	KnowledgeBase additionalKnowledgeBase;
-	// Get iterators to beginning and the end
-	ClauseSet::const_iterator kbCurrent = KB.clauses.begin();
-	ClauseSet::const_iterator kbEnd = KB.clauses.end();
-	while (kbCurrent != kbEnd) {
-		// kbIterator starts from kbCurrent+1 to end for the rest of clauses in KB
-		ClauseSet::const_iterator kbIterator = kbCurrent;
-		++kbIterator;
-		while (kbIterator != kbEnd) { //go through all the other clauses
-			Clause newClause = *kbCurrent | *(kbIterator++);
+
+	// Process old data with new ones
+	ClauseSet::const_iterator kbCurrentProcessed = processedKB.clauses.begin();
+	ClauseSet::const_iterator kbEndProcessed = processedKB.clauses.end();
+	ClauseSet::const_iterator kbCurrentNew;
+	ClauseSet::const_iterator kbEndNew = newKB.clauses.end();
+	while (kbCurrentProcessed != kbEndProcessed) {
+		kbCurrentNew = newKB.clauses.begin();
+		while (kbCurrentNew != kbEndNew) {
+			Clause newClause = *kbCurrentProcessed | *(kbCurrentNew++);
 
 			// If the new clause is an empty one => contradiction
 			if (newClause.size() == 0) {
 				return true;
 			}
 			// if the new clause doesn't exist in the set, add it to the addition KB
-			else if(clauses.find(newClause) == clauses.end()){ 
+			else if (processedKB.clauses.find(newClause) == processedKB.clauses.end() 
+				&& newKB.clauses.find(newClause) == newKB.clauses.end()) {
 				additionalKnowledgeBase += newClause;
 			}
-			else {
-				printf("WTF\n");
+		}
+		++kbCurrentProcessed;
+	}
+
+	// Process new data among itself
+	kbCurrentNew = newKB.clauses.begin();
+	while (kbCurrentNew != kbEndNew) {
+		// kbIterator starts from kbCurrent+1 to end for the rest of clauses in KB
+		ClauseSet::const_iterator kbIterator = kbCurrentNew;
+		++kbIterator;
+		while (kbIterator != kbEndNew) { //go through all the other clauses
+			Clause newClause = *kbCurrentNew | *(kbIterator++);
+
+			// If the new clause is an empty one => contradiction
+			if (newClause.size() == 0) {
+				return true;
+			}
+			// if the new clause doesn't exist in the set, add it to the addition KB
+			else if((processedKB.clauses.find(newClause) == processedKB.clauses.end()
+				&& newKB.clauses.find(newClause) == newKB.clauses.end())){
+				additionalKnowledgeBase += newClause;
 			}
 		}
-		++kbCurrent;
+		++kbCurrentNew;
 	}
 
 	// Nothing is added and no empty clause is found
@@ -75,11 +112,27 @@ bool KnowledgeBase::ResolveKB(KnowledgeBase & KB) const
 	}
 
 	// Else, our search continues
-	KnowledgeBase newKnowledgeBase;
-	newKnowledgeBase += KB;
-	newKnowledgeBase += additionalKnowledgeBase;
+	processedKB += newKB;
 
-	return ResolveKB(newKnowledgeBase);
+	return ResolveKB(processedKB, additionalKnowledgeBase);
+}
+
+// Note to whomever reads this
+// I've been programming for almost 8 years now
+// And I have NEVER given such a cool name to a function
+// Today was a good day. Today I was proud.
+void KnowledgeBase::PurgeAbsoluteTruths()
+{
+	ClauseSet::iterator current = clauses.begin();
+	ClauseSet::iterator end = clauses.end();
+	while (current != end) {
+		ClauseSet::iterator iter = current;
+		++iter;
+		while (iter != end) {
+
+		}
+	}
+
 }
 ////////////////////////////////////////////////////////////////////////////
 std::ostream& operator<<( std::ostream& os, KnowledgeBase const& kb ) {
@@ -186,10 +239,35 @@ Clause const Clause::operator|(Clause const & op2) const
 
 	// "Logical Housekeeping"
 	// If the set contains complementary literals, remove them from the set
+	// NOTE: HOW THE HELL THIS DISGUSTING BLOCK OF CODE IS FASTER THAN THE BEAUTY BELOW
+	// I honestly don't get it
 	LiteralSet::iterator current = result.begin();
+	LiteralSet::iterator iter;
 	LiteralSet::iterator end = result.end();
+	bool isSomethingRemoved = false;
 	while (current != end) {
-		Literal literalToCheck(*current);
+		iter = current;
+		++iter;
+		while (iter != end) {
+			if (current->Complementary(*iter)) {
+				result.literals.erase(iter);
+				LiteralSet::iterator literalToBeRemoved = current++;
+				result.literals.erase(literalToBeRemoved);
+				isSomethingRemoved = true;
+				break;
+			}
+			else {
+				++iter;
+			}
+		}
+		if (!isSomethingRemoved) {
+			++current;
+		}
+		else {
+			isSomethingRemoved = false;
+		}
+		
+		/*Literal literalToCheck(*current);
 		literalToCheck.Negate();
 		if (result.literals.erase(literalToCheck) > 0) {
 			LiteralSet::iterator literalToBeRemoved = current++;
@@ -197,7 +275,7 @@ Clause const Clause::operator|(Clause const & op2) const
 		}
 		else {
 			++current;
-		}
+		}*/
 	}
 
 	return result;
@@ -212,4 +290,22 @@ ClauseSet Clause::operator~() const
 		negatedLiteralSet.insert(~(*(iterator++)));
 	}
 	return negatedLiteralSet;
+}
+
+std::string Clause::ToString() const
+{
+	std::string stringForm;
+	LiteralSet::const_iterator iter = literals.begin();
+	LiteralSet::const_iterator end = literals.end();
+
+	while (iter != end) {
+		stringForm.append((iter++)->Name());
+		stringForm.append("|");
+	}
+	// removing the extra OR sign
+	if (stringForm.size() > 0) {
+		stringForm[stringForm.size() - 1] = '\0';
+	}
+
+	return stringForm;
 }

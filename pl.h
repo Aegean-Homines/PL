@@ -50,6 +50,7 @@ class Literal {
             os << (literal.negated?"~":"") << literal.name;
             return os;
         }
+		std::string const & Name() const { return name; }
     private:
         std::string name;
         bool negated;
@@ -59,13 +60,9 @@ typedef std::set<Literal> LiteralSet;
 
 class Clause {
     public:
-		Clause(LiteralSet const & literals) : literals(literals) {};
+		Clause(LiteralSet const & literals) : literals(literals){};
 		Clause(Literal const & singleLiteral) {
 			literals.insert(singleLiteral);
-		}
-
-		bool operator==(Clause const & op2) const {
-			return (literals == op2.literals);
 		}
 
 		bool operator<(Clause const& op2) const {
@@ -79,6 +76,8 @@ class Clause {
 		LiteralSet::const_iterator end()   const { return literals.end(); }
 
 		std::set<Clause> operator~() const;
+
+		std::string ToString() const;
 
         // ..........
         // ..........
@@ -180,6 +179,7 @@ class KnowledgeBase {
         KnowledgeBase& operator+=( CNF const& cnf );
 		KnowledgeBase& operator+=(Literal const& literal);
 		KnowledgeBase& operator+=(KnowledgeBase const& kb);
+		KnowledgeBase& operator+=(Clause const& clause);
 
         ////////////////////////////////////////////////////////////////////////
 		ClauseSet::const_iterator begin() const;
@@ -192,7 +192,8 @@ class KnowledgeBase {
     private:
 		ClauseSet clauses;
 
-		bool ResolveKB(KnowledgeBase & KB) const;
+		bool ResolveKB(KnowledgeBase & processedKB, KnowledgeBase & newKB) const;
+		void PurgeAbsoluteTruths();
 };
 
 ////////////////////////////////////////////////////////////////////////////////
